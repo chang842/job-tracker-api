@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import uuid4
 
-from database import SessionLocal, engine, get_db
-from models import Base, User
+from database import SessionLocal, engine, get_db, Base
+import models
+Base.metadata.create_all(bind=engine)
+
 
 from auth import router as auth_router
 app = FastAPI()
@@ -38,18 +40,14 @@ def get_db():
         db.close()
 
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
-) -> User:
+def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user = crud.get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-
     return user
 
 
