@@ -7,9 +7,9 @@ from uuid import uuid4
 from database import SessionLocal, engine, get_db, Base
 import models
 Base.metadata.create_all(bind=engine)
-
-
 from auth import router as auth_router
+
+
 app = FastAPI()
 app.include_router(auth_router)
 
