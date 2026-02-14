@@ -4,8 +4,13 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import uuid4
 
-from database import SessionLocal, engine
-from models import Base
+from database import SessionLocal, engine, get_db
+from models import Base, User
+
+from auth import router as auth_router
+app = FastAPI()
+app.include_router(auth_router)
+
 import crud
 from schemas import (
     JobCreate,
@@ -15,7 +20,7 @@ from schemas import (
     UserPublic,
     TokenResponse,
 )
-from auth import hash_password, verify_password, create_access_token, decode_access_token
+from auth import hash_password, verify_password, create_access_token, decode_access_token, authenticate_user
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -33,14 +38,18 @@ def get_db():
         db.close()
 
 
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+) -> User:
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = crud.get_user_by_id(db, user_id)
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
     return user
 
 
@@ -65,16 +74,19 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
     return user
 
 
-@app.post("/auth/login", response_model=TokenResponse)
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # OAuth2PasswordRequestForm 會用 x-www-form-urlencoded 傳 username/password
-    user = crud.get_user_by_email(db, form.username)
-    if not user or not verify_password(form.password, user.password_hash):
+@app.post("/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = authenticate_user(db, form_data.username, form_data.password)
+
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_access_token(subject=user.id)
-    return {"access_token": token, "token_type": "bearer"}
+    token = create_access_token(subject=str(user.id))
 
+    return {
+        "access_token": token,
+        "token_type": "bearer"
+    }
 
 # ---------------- Jobs (Protected) ----------------
 @app.post("/jobs", response_model=JobResponse)
